@@ -2,7 +2,7 @@ import sys, os
 from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QStackedWidget, QFileDialog, QLabel
 from PyQt6.QtCore import Qt, pyqtSignal, QTranslator, QCoreApplication, QTimer
-sys.stdout = open(os.devnull, 'w')
+#sys.stdout = open(os.devnull, 'w')
 from qfluentwidgets import setThemeColor, TransparentToolButton, FluentIcon, PushSettingCard, isDarkTheme, SettingCard, MessageBox, FluentTranslator, IndeterminateProgressBar, HeaderCardWidget, BodyLabel, IconWidget, InfoBarIcon, PushButton, SubtitleLabel, ComboBoxSettingCard, OptionsSettingCard, HyperlinkCard, ScrollArea, InfoBar, InfoBarPosition, StrongBodyLabel, Flyout, FlyoutAnimationType
 from winrt.windows.ui.viewmanagement import UISettings, UIColorType
 from resource.config import cfg
@@ -39,41 +39,6 @@ else:
     # Running as a script
     base_dir = os.path.dirname(os.path.abspath(__file__))
     res_dir = base_dir
-
-class ErrorHandler(object):
-    def __call__(self, exctype, value, tb):
-        # Extract the traceback details
-        tb_info = traceback.extract_tb(tb)
-        # Get the last entry in the traceback (the most recent call)
-        last_call = tb_info[-1] if tb_info else None
-
-        if last_call:
-            filename, line_number, function_name, text = last_call
-            error_message = (f"Type: {exctype.__name__}\n"
-                             f"Message: {value}\n"
-                             f"File: {filename}\n"
-                             f"Line: {line_number}\n"
-                             f"Code: {text}")
-        else:
-            error_message = (f"Type: {exctype.__name__}\n"
-                             f"Message: {value}")
-
-        error_box = MessageBox("Error", error_message, parent=window)
-        error_box.cancelButton.hide()
-        error_box.buttonLayout.insertStretch(1)
-        error_box.exec()
-
-    def write(self, message):
-        if message.startswith("Error:"):
-            error_box = MessageBox("Error", message, parent=window)
-            error_box.cancelButton.hide()
-            error_box.buttonLayout.insertStretch(1)
-            error_box.exec()
-        else:
-            pass
-
-    def flush(self):
-        pass
 
 class FileLabel(QLabel):
     fileSelected = pyqtSignal(str)
@@ -135,12 +100,12 @@ class FileLabel(QLabel):
             QCoreApplication.translate("MainWindow", "Select a PDF or EPUB file"),
             initial_dir,
             QCoreApplication.translate("MainWindow",
-                "Text files (*.pdf *.epub *.doc *.docx *.rtf *.txt *.);;"
+                "Text files (*.pdf *.epub *.doc *.docx *.rtf *.txt *.odt);;"
                 "All Files (*)")
         )
         if self.file_path:
             self.main_window.last_directory = os.path.dirname(self.file_path)
-            if self.is_pdf_or_epub_file(self.file_path):
+            if self.is_document(self.file_path):
                 self.fileSelected.emit(self.file_path)
                 self.file_accepted(self.file_path)
             else:
@@ -166,7 +131,7 @@ class FileLabel(QLabel):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 self.file_path = url.toLocalFile()
-                if self.is_pdf_or_epub_file(self.file_path):
+                if self.is_document(self.file_path):
                     self.main_window.last_directory = os.path.dirname(self.file_path)
 
                     self.fileSelected.emit(self.file_path)
@@ -211,11 +176,12 @@ class FileLabel(QLabel):
                         layout.insertWidget(i, new_label)
                         self.deleteLater()
                         break
+        self.main_window.back_button.show()
         
         
 
-    def is_pdf_or_epub_file(self, file_path):
-        file_extensions = ['.pdf', '.epub', '.doc', '.docx', '.txt', '.rtf']
+    def is_document(self, file_path):
+        file_extensions = ['.pdf', '.epub', '.doc', '.docx', '.txt', '.rtf', '.odt']
         _, ext = os.path.splitext(file_path)
         return ext.lower() in file_extensions
 
@@ -309,6 +275,27 @@ class MainWindow(QMainWindow):
             parent=self.settings_win
         )
 
+    def return_to_filepicker(self):
+        # Get the main widget (index 0 in stacked widget)
+        main_widget = self.stacked_widget.widget(0)
+        
+        # Find the layout in this widget
+        main_layout = main_widget.layout()
+        
+        # Remove all widgets from the layout except the last one (which contains the settings buttons)
+        while main_layout.count() > 1:
+            item = main_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        
+        # Recreate the filepicker
+        self.filepicker = FileLabel(self)
+        main_layout.insertWidget(0, self.filepicker)
+        
+        # Hide the back button
+        self.back_button.hide()
+
     def center(self):
         screen_geometry = self.screen().availableGeometry()
         window_geometry = self.geometry()
@@ -354,6 +341,7 @@ class MainWindow(QMainWindow):
 
         settings_layout = QHBoxLayout()
         settings_layout.addWidget(self.settings_button)
+        settings_layout.addWidget(self.back_button)
         settings_layout.addStretch()
         settings_layout.setContentsMargins(5, 5, 5, 5)
 
@@ -364,6 +352,7 @@ class MainWindow(QMainWindow):
 
         #connect
         self.settings_button.clicked.connect(self.show_settings_page)
+        self.back_button.clicked.connect(self.return_to_filepicker)
 
         main_widget = QWidget()
         main_widget.setLayout(main_layout)
@@ -599,78 +588,7 @@ class MainWindow(QMainWindow):
                 parent=self
             )
 
-    def start_translation_process(self, file_path):
-        """Delegate to srt translator"""
-        self.srt_translator.start_subtitle_process(file_path)
-
-    def handle_translation_save_path(self, default_name, translated_content):
-        initial_dir = self.last_directory if self.last_directory else ""
-        default_name = os.path.join(initial_dir, os.path.basename(default_name))
-
-
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            QCoreApplication.translate('MainWindow',"Save Translated Subtitles"),
-            default_name,
-            QCoreApplication.translate('MainWindow',"Subtitle Files (*.srt)")
-        )
-
-        if hasattr(self.srt_translator, 'translation_worker'):
-            if file_path:
-                self.last_directory = os.path.dirname(file_path)
-                self.srt_translator.translation_worker.save_path = file_path
-                self.srt_translator.translation_worker.translated_content = translated_content
-            else:
-                self.srt_translator.translation_worker.save_path = ""
-                self.srt_translator.translation_worker.abort()
-                self.progressbar.stop()
-
-    def on_translation_done(self, result, success):
-        self.progressbar.stop()
-
-        if success:
-            central_widget = self.centralWidget()
-            layout = central_widget.layout()
-            current_widget = layout.itemAt(0).widget()
-
-            if hasattr(current_widget, 'update_file'):
-                current_widget.update_file(result)
-
-            InfoBar.success(
-                title=QCoreApplication.translate('MainWindow',"Success"),
-                content=QCoreApplication.translate('MainWindow', "Translation saved to <b>{}</b>").format(result),
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.BOTTOM,
-                duration=4000,
-                parent=self
-            )
-        elif result:  # Error message
-            InfoBar.error(
-                title=QCoreApplication.translate('MainWindow',"Error"),
-                content=result,
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.BOTTOM,
-                duration=4000,
-                parent=self
-            )
-
-    def cleanup_worker(self):
-        if hasattr(self.subtitle_creator, 'transcription_worker'):
-            self.subtitle_creator.transcription_worker.deleteLater()
-            del self.subtitle_creator.transcription_worker
-
     def closeEvent(self, event):
-        temp_dir = tempfile.gettempdir()
-        temp_files = glob.glob(os.path.join(temp_dir, "temp_audio_*.wav"))
-
-        for file in temp_files:
-            try:
-                os.remove(file)
-            except Exception as e:
-                print(f"Error deleting temp file {file}: {e}")
-
         try:
             import torch
             if torch.cuda.is_available():
@@ -743,6 +661,6 @@ if __name__ == "__main__":
 
     window = MainWindow()
     window.show()
-    sys.excepthook = ErrorHandler()
-    sys.stderr = ErrorHandler()
+    #sys.excepthook = ErrorHandler()
+    #sys.stderr = ErrorHandler()
     sys.exit(app.exec())
