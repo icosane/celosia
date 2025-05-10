@@ -1,12 +1,13 @@
 import sys, os
 from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QStackedWidget, QFileDialog, QLabel
-from PyQt6.QtCore import Qt, pyqtSignal, QTranslator, QCoreApplication, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTranslator, QCoreApplication, QTimer, pyqtSlot
 #sys.stdout = open(os.devnull, 'w')
 from qfluentwidgets import setThemeColor, TransparentToolButton, FluentIcon, PushSettingCard, isDarkTheme, SettingCard, MessageBox, FluentTranslator, IndeterminateProgressBar, HeaderCardWidget, BodyLabel, IconWidget, InfoBarIcon, PushButton, SubtitleLabel, ComboBoxSettingCard, OptionsSettingCard, HyperlinkCard, ScrollArea, InfoBar, InfoBarPosition, StrongBodyLabel, Flyout, FlyoutAnimationType
 from winrt.windows.ui.viewmanagement import UISettings, UIColorType
 from resource.config import cfg
 from resource.argos_utils import update_package, update_device
+from resource.translator import FileTranslator
 import shutil
 import traceback, gc
 import tempfile
@@ -47,6 +48,8 @@ class FileLabel(QLabel):
         super().__init__()
         self.main_window = main_window
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_text = "Ready for translation"
+        self.current_file_label = None  # Will store the current QLabel showing file and status
         self.setText(self.update_text_color())
         self.setStyleSheet('''
             QLabel{
@@ -62,7 +65,7 @@ class FileLabel(QLabel):
         if lang == 'RUSSIAN':
             text = f'''
             <p style="text-align: center; font-size: {font_size}; color: {color};">
-                <br><br> Перетащите сюда любой PDF или EPUB файл <br>
+                <br><br> Перетащите сюда любой PDF, EPUB, TXT или DOCX файл <br>
                 <br>или<br><br>
                 <a href="" style="color: {color};"><strong>Нажмите в любом месте для выбора</strong></a>
                 <br>
@@ -71,7 +74,7 @@ class FileLabel(QLabel):
         else:
             text = f'''
             <p style="text-align: center; font-size: {font_size}; color: {color};">
-                <br><br> Drag&Drop any PDF or EPUB file<br>
+                <br><br> Drag&Drop any PDF, EPUB, TXT or DOCX file<br>
                 <br>or<br><br>
                 <a href="" style="color: {color};"><strong>Click anywhere to browse</strong></a>
                 <br>
@@ -100,7 +103,7 @@ class FileLabel(QLabel):
             QCoreApplication.translate("MainWindow", "Select a PDF or EPUB file"),
             initial_dir,
             QCoreApplication.translate("MainWindow",
-                "Text files (*.pdf *.epub *.doc *.docx *.rtf *.txt *.odt);;"
+                "Text files (*.pdf *.epub *.docx *.txt);;"
                 "All Files (*)")
         )
         if self.file_path:
@@ -108,6 +111,16 @@ class FileLabel(QLabel):
             if self.is_document(self.file_path):
                 self.fileSelected.emit(self.file_path)
                 self.file_accepted(self.file_path)
+            elif self.is_not_supported_document(self.file_path):
+                InfoBar.error(
+                    title=QCoreApplication.translate("MainWindow", "Error"),
+                    content=QCoreApplication.translate("MainWindow", "This file format is not fully supported. Please convert it to .docx and try again"),
+                    orient=Qt.Orientation.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.BOTTOM,
+                    duration=4000,
+                    parent=window
+                )
             else:
                 InfoBar.error(
                     title=QCoreApplication.translate("MainWindow", "Error"),
@@ -136,6 +149,16 @@ class FileLabel(QLabel):
 
                     self.fileSelected.emit(self.file_path)
                     self.file_accepted(self.file_path)
+                elif self.is_not_supported_document(self.file_path):
+                    InfoBar.error(
+                        title=QCoreApplication.translate("MainWindow", "Error"),
+                        content=QCoreApplication.translate("MainWindow", "This file format is not fully supported. Please convert it to .docx and try again"),
+                        orient=Qt.Orientation.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.BOTTOM,
+                        duration=4000,
+                        parent=window
+                    )
                 else:
                     InfoBar.error(
                         title=QCoreApplication.translate("MainWindow", "Error"),
@@ -147,17 +170,24 @@ class FileLabel(QLabel):
                         parent=window
                     )
 
+    def update_status_text(self, new_text):
+        """Update the status text and refresh the display"""
+        self.status_text = new_text
+        if self.current_file_label:  # Only update if we have an active file label
+            self.current_file_label.setText(f"<center><strong>{os.path.basename(self.current_file_label.file_path)}</strong><br><br>{new_text}</center>")
+
     def file_accepted(self, file_path):
         self.deleted = True
         self.setStyleSheet("")
         
         # Create a styled label to replace this one
-        new_label = QLabel(f"<center><b>{os.path.basename(file_path)}</b><br><br>{self.main_window.status_text}</center>")
-        new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.current_file_label = QLabel(f"<center><b>{os.path.basename(file_path)}</b><br><br>{self.status_text}</center>")
+        self.current_file_label.file_path = file_path  # Store the path as an attribute
+        self.current_file_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # Apply theme-appropriate styling
         color = 'white' if isDarkTheme() else 'black'
-        new_label.setStyleSheet(f'''
+        self.current_file_label.setStyleSheet(f'''
             QLabel {{
                 color: {color};
                 font-size: 16px;
@@ -170,18 +200,23 @@ class FileLabel(QLabel):
         if parent:
             layout = parent.layout()
             if layout:
-                for i in range(layout.count()):
-                    if layout.itemAt(i).widget() == self:
-                        layout.removeWidget(self)
-                        layout.insertWidget(i, new_label)
-                        self.deleteLater()
-                        break
+                # Replace the widget at index 0
+                layout.replaceWidget(self, self.current_file_label)
+                self.current_file_label.show()  # Ensure the new label is shown
+                self.deleteLater()  # Delete the old FileLabel widget
+
         self.main_window.back_button.show()
-        
-        
+        QTimer.singleShot(400, lambda: self.update_status_text("Translating..."))
+        QTimer.singleShot(400, lambda: self.main_window.start_translation_process(file_path))
+              
 
     def is_document(self, file_path):
-        file_extensions = ['.pdf', '.epub', '.doc', '.docx', '.txt', '.rtf', '.odt']
+        file_extensions = ['.pdf', '.epub', '.docx', '.txt']
+        _, ext = os.path.splitext(file_path)
+        return ext.lower() in file_extensions
+
+    def is_not_supported_document(self, file_path):
+        file_extensions = ['.doc', '.odt', '.rtf']
         _, ext = os.path.splitext(file_path)
         return ext.lower() in file_extensions
 
@@ -189,7 +224,6 @@ class MainWindow(QMainWindow):
     theme_changed = pyqtSignal()
     device_changed = pyqtSignal()
     package_changed = pyqtSignal()
-    status_changed = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -203,16 +237,14 @@ class MainWindow(QMainWindow):
         self.setup_theme()
         self.center()
         self.model = None
-        self.status_text = "Ready for translation"
         self.last_directory = ""
         self.setAcceptDrops(True)
 
         self.theme_changed.connect(self.update_theme)
         self.device_changed.connect(lambda: update_device(self))
         self.package_changed.connect(lambda: update_package(self))
-        self.status_changed.connect(self.update_status_text)
 
-        #self.srt_translator = SRTTranslator(self, cfg)
+        self.file_translator = FileTranslator(self, cfg)
 
         QTimer.singleShot(100, self.init_check)
 
@@ -276,6 +308,8 @@ class MainWindow(QMainWindow):
         )
 
     def return_to_filepicker(self):
+        if hasattr(self, 'progressbar'):
+            self.progressbar.stop()
         # Get the main widget (index 0 in stacked widget)
         main_widget = self.stacked_widget.widget(0)
         
@@ -283,16 +317,14 @@ class MainWindow(QMainWindow):
         main_layout = main_widget.layout()
         
         # Remove all widgets from the layout except the last one (which contains the settings buttons)
-        while main_layout.count() > 1:
-            item = main_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
+        item = main_layout.takeAt(0)
+        widget = item.widget()
+        if widget is not None:
+            widget.deleteLater()
         
         # Recreate the filepicker
         self.filepicker = FileLabel(self)
         main_layout.insertWidget(0, self.filepicker)
-        
         # Hide the back button
         self.back_button.hide()
 
@@ -308,25 +340,6 @@ class MainWindow(QMainWindow):
     def update_argos_remove_button_state(self,enabled):
         if hasattr(self, 'card_deleteargosmodel'):
             self.card_deleteargosmodel.button.setEnabled(enabled)
-
-    def update_status_text(self, new_text):
-        """Slot to update the status text"""
-        self.status_text = new_text
-        # Update any UI elements that display this status
-        self.update_status_display()
-
-    def update_status_display(self):
-        """Update all UI elements that show the status text"""
-        # Find and update the label in the main layout if it exists
-        central_widget = self.centralWidget()
-        if central_widget:
-            layout = central_widget.layout()
-            if layout:
-                # The first widget is either the FileLabel or the replacement QLabel
-                widget = layout.itemAt(0).widget()
-                if isinstance(widget, QLabel) and hasattr(widget, 'file_path'):
-                    # This is the replacement label after file selection
-                    widget.setText(f"<center><b>{os.path.basename(widget.file_path)}</b><br><br>{self.status_text}</center>")
 
     def main_layout(self):
         main_layout = QVBoxLayout()
@@ -600,6 +613,62 @@ class MainWindow(QMainWindow):
             widget.close()
 
         super().closeEvent(event)
+
+    @pyqtSlot(str)
+    def start_translation_process(self, file_path):
+        """Delegate to srt translator"""
+        self.file_translator.start_translation_process(file_path)
+
+    def handle_translation_save_path(self, default_name, translated_content):
+        initial_dir = self.last_directory if self.last_directory else ""
+        default_name = os.path.join(initial_dir, os.path.basename(default_name))
+
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            QCoreApplication.translate('MainWindow',"Save Translated File"),
+            default_name,
+            QCoreApplication.translate('MainWindow',"All Files (*)")
+        )
+
+        if hasattr(self.file_translator, 'translation_worker'):
+            if file_path:
+                self.last_directory = os.path.dirname(file_path)
+                self.file_translator.translation_worker.save_path = file_path
+                self.file_translator.translation_worker.translated_content = translated_content
+            else:
+                self.file_translator.translation_worker.save_path = ""
+                self.file_translator.translation_worker.abort()
+                self.progressbar.stop()
+
+    def on_translation_done(self, result, success):
+        self.progressbar.stop()
+
+        if success:
+            self.return_to_filepicker()
+            InfoBar.success(
+                title=QCoreApplication.translate('MainWindow',"Success"),
+                content=QCoreApplication.translate('MainWindow', "Translation saved to <b>{}</b>").format(result),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.BOTTOM,
+                duration=4000,
+                parent=self
+            )
+        elif result:  # Error message
+            self.return_to_filepicker()
+            InfoBar.error(
+                title=QCoreApplication.translate('MainWindow',"Error"),
+                content=result,
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.BOTTOM,
+                duration=4000,
+                parent=self
+            )
+        if not success:
+            if hasattr(self.file_translator, 'translation_worker'):
+                self.file_translator.translation_worker.abort()
 
     def on_package_download_finished(self, status):
         if status == "start":
