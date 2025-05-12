@@ -13,6 +13,7 @@ import traceback, gc
 import tempfile
 from ctranslate2 import get_cuda_device_count
 import glob
+from pathlib import Path
 
 def get_lib_paths():
     if getattr(sys, 'frozen', False):  # Running inside PyInstaller
@@ -440,8 +441,11 @@ class MainWindow(QMainWindow):
         card_layout.addWidget(self.card_settlpackage, alignment=Qt.AlignmentFlag.AlignTop)
         cfg.package.valueChanged.connect(self.package_changed.emit)
 
-        lang_layout = self.lang_shortcuts()
-        card_layout.addLayout(lang_layout)
+        self.lang_widget = QWidget()
+        self.lang_layout = QHBoxLayout()
+        self.lang_widget.setLayout(self.lang_layout)
+        card_layout.addWidget(self.lang_widget)
+        self.check_packages()
 
         self.card_deleteargosmodel = PushSettingCard(
             text=QCoreApplication.translate("MainWindow","Remove"),
@@ -530,9 +534,8 @@ class MainWindow(QMainWindow):
     def show_main_page(self):
         self.stacked_widget.setCurrentIndex(0)  # Switch back to the main page
 
+    def check_packages(self):
 
-    def lang_shortcuts(self):
-        lang_layout = QHBoxLayout()
         languages = {
             'en_ru': 'English → Russian',
             'ru_en': 'Russian → English',
@@ -552,13 +555,43 @@ class MainWindow(QMainWindow):
             'ja_en': TranslationPackage.JA_TO_EN,
             'zh_en': TranslationPackage.ZH_TO_EN
         }
-        for code, name in languages.items():
+
+        for i in reversed(range(self.lang_layout.count())): 
+            widget = self.lang_layout.itemAt(i).widget()
+            if widget and widget.parent() is not None:
+                widget.deleteLater()
+
+        available_languages = []
+        for language_pair, name in languages.items():
+            package_patterns = [
+                os.path.join(
+                    base_dir,
+                    "models/argostranslate/data/argos-translate/packages",
+                    f"translate-{language_pair}-*"
+                ),
+                os.path.join(
+                    base_dir,
+                    "models/argostranslate/data/argos-translate/packages",
+                    f"{language_pair}"
+                )
+            ]
+            # Check if any pattern exists
+            found = False
+            for pattern in package_patterns:
+                if any(Path(p).is_dir() for p in glob.glob(pattern)):
+                    found = True
+                    break
+            if found:
+                available_languages.append((language_pair, name))
+        # Create buttons for available languages
+        for code, name in available_languages:
             lang_button = TransparentPushButton(name)
             lang_button.clicked.connect(lambda _, c=code: self.card_settlpackage.setValue(translation_mapping[c]))
-            lang_layout.addWidget(lang_button, alignment=Qt.AlignmentFlag.AlignTop)
+            self.lang_layout.addWidget(lang_button, alignment=Qt.AlignmentFlag.AlignTop)
         
-        lang_layout.addStretch()
-        return lang_layout
+        # Show/hide layout based on whether there are available languages
+        self.lang_widget.setVisible(len(available_languages) > 0)
+
 
     def packageremover(self):
         language_pair = cfg.get(cfg.package).value
@@ -602,6 +635,7 @@ class MainWindow(QMainWindow):
             # Only update config if we actually removed something
             if removed_dirs or removed_file:
                 cfg.set(cfg.package, 'None')
+                self.check_packages()
 
                 InfoBar.success(
                     title=QCoreApplication.translate("MainWindow", "Success"),
@@ -729,6 +763,7 @@ class MainWindow(QMainWindow):
                 parent=self
             )
             self.update_argos_remove_button_state(True)
+            self.check_packages()
         elif status.startswith("error"):
             InfoBar.error(
                 title=QCoreApplication.translate("MainWindow", "Error"),
