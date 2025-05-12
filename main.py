@@ -5,7 +5,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTranslator, QCoreApplication, QTimer, 
 #sys.stdout = open(os.devnull, 'w')
 from qfluentwidgets import setThemeColor, TransparentToolButton, FluentIcon, PushSettingCard, isDarkTheme, SettingCard, MessageBox, FluentTranslator, IndeterminateProgressBar, HeaderCardWidget, BodyLabel, IconWidget, InfoBarIcon, PushButton, SubtitleLabel, ComboBoxSettingCard, OptionsSettingCard, HyperlinkCard, ScrollArea, InfoBar, InfoBarPosition, StrongBodyLabel, Flyout, FlyoutAnimationType, TransparentPushButton
 from winrt.windows.ui.viewmanagement import UISettings, UIColorType
-from resource.config import cfg
+from resource.config import cfg, TranslationPackage
 from resource.argos_utils import update_package, update_device
 from resource.translator import FileTranslator
 import shutil
@@ -440,6 +440,9 @@ class MainWindow(QMainWindow):
         card_layout.addWidget(self.card_settlpackage, alignment=Qt.AlignmentFlag.AlignTop)
         cfg.package.valueChanged.connect(self.package_changed.emit)
 
+        lang_layout = self.lang_shortcuts()
+        card_layout.addLayout(lang_layout)
+
         self.card_deleteargosmodel = PushSettingCard(
             text=QCoreApplication.translate("MainWindow","Remove"),
             icon=FluentIcon.BROOM,
@@ -526,6 +529,36 @@ class MainWindow(QMainWindow):
 
     def show_main_page(self):
         self.stacked_widget.setCurrentIndex(0)  # Switch back to the main page
+
+
+    def lang_shortcuts(self):
+        lang_layout = QHBoxLayout()
+        languages = {
+            'en_ru': 'English → Russian',
+            'ru_en': 'Russian → English',
+            'de_en': 'German → English',
+            'fr_en': 'French → English',
+            'it_en': 'Italian → English',
+            'ja_en': 'Japanese → English',
+            'zh_en': 'Chinese → English'
+        }
+        
+        translation_mapping = {
+            'en_ru': TranslationPackage.EN_TO_RU,
+            'ru_en': TranslationPackage.RU_TO_EN,
+            'de_en': TranslationPackage.DE_TO_EN,
+            'fr_en': TranslationPackage.FR_TO_EN,
+            'it_en': TranslationPackage.IT_TO_EN,
+            'ja_en': TranslationPackage.JA_TO_EN,
+            'zh_en': TranslationPackage.ZH_TO_EN
+        }
+        for code, name in languages.items():
+            lang_button = TransparentPushButton(name)
+            lang_button.clicked.connect(lambda _, c=code: self.card_settlpackage.setValue(translation_mapping[c]))
+            lang_layout.addWidget(lang_button, alignment=Qt.AlignmentFlag.AlignTop)
+        
+        lang_layout.addStretch()
+        return lang_layout
 
     def packageremover(self):
         language_pair = cfg.get(cfg.package).value
