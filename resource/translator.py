@@ -68,7 +68,7 @@ class TranslationWorker(QThread):
 
             # Request save path
             base_name = os.path.splitext(os.path.basename(self.input_path))[0]
-            default_name = f"{base_name}_translated_{self.from_code}_{self.to_code}{file_extension}"
+            default_name = f"{base_name}_translated_{self.to_code}{file_extension}"
             self.request_save_path.emit(default_name, translated_text)
 
             # Wait for save path or abort
@@ -121,42 +121,93 @@ class TranslationWorker(QThread):
         return any(run.text.strip() for run in para.runs if not self._is_non_text_run(run))
     
     def _translate_docx(self, translated_text, save_path):
-        """Translates only the text parts of runs, skipping image and hyperlink-containing runs."""
         if not hasattr(self, 'original_doc') or not hasattr(self, 'translatable_paragraphs'):
             return
 
         translated_lines = translated_text.split('\n')
-
+        
         for para, trans_line in zip(self.translatable_paragraphs, translated_lines):
             if not para.runs or not trans_line:
                 continue
 
-            # Count only text runs
-            text_runs = [run for run in para.runs if not self._is_non_text_run(run)]
-            if not text_runs:
-                continue
+            # Separate translatable and non-translatable runs
+            translatable_runs = []
+            non_translatable_runs = []
+            for run in para.runs:
+                if self._is_translatable_run(run):
+                    translatable_runs.append(run)
+                else:
+                    non_translatable_runs.append(run)
 
-            chars_per_run = len(trans_line) // len(text_runs)
-            remainder = len(trans_line) % len(text_runs)
-
-            start = 0
-            for i, run in enumerate(para.runs):
-                if self._is_non_text_run(run):
-                    continue
-
-                end = start + chars_per_run + (1 if remainder > 0 else 0)
-                run.text = trans_line[start:end]
-                start = end
-                remainder -= 1
-                if start >= len(trans_line):
-                    break
+            # If we have translatable runs, replace their text with translation
+            if translatable_runs:
+                # Clear all translatable runs first
+                for run in translatable_runs:
+                    run.text = ""
+                
+                # Put all translated text in the first translatable run
+                translatable_runs[0].text = trans_line
+                
+                # Preserve non-translatable runs (hyperlinks, etc.)
+                # They maintain their original position and content
 
         self.original_doc.save(save_path)
+
+    def _is_translatable_run(self, run):
+        """More accurate detection of translatable runs"""
+        if not run.text.strip():
+            return False
+            
+        xml = run._element.xml
+        # Explicitly skip these elements
+        skip_tags = {
+            '<w:hyperlink',  # Hyperlinks
+            '<w:instrText', # Field codes
+            '<w:fldChar',    # Field characters
+            '<w:drawing',    # Drawings
+            '<w:pict',       # Pictures
+            '<m:oMath',      # Math formulas
+            '<w:footnote',   # Footnotes
+            '<w:endnote',    # Endnotes
+            '<m:sup',        # Superscript
+            '<m:sub',        # subscript
+            '<m:frac',       # a fraction
+            '<m:msup',       # mathematical superscript
+            '<a:blip',       # bitmap image
+            '<a:shape',      # a shape
+            '<a:groupShape', # a group of shapes
+            '<a:line',       # a line shape
+        }
+        
+        return not any(tag in xml for tag in skip_tags)
+
+
 
     def _is_non_text_run(self, run):
         """Returns True if the run contains drawing or hyperlink content"""
         xml = run._element.xml
-        return ('<w:drawing' in xml or '<w:pict' in xml or '<w:hyperlink' in xml or '<w:instrText' in xml)
+
+        skip_tags = {
+            '<w:hyperlink',  # Hyperlinks
+            '<w:instrText', # Field codes
+            '<w:fldChar',    # Field characters
+            '<w:drawing',    # Drawings
+            '<w:pict',       # Pictures
+            '<m:oMath',      # Math formulas
+            '<w:footnote',   # Footnotes
+            '<w:endnote',    # Endnotes
+            '<m:sup',        # Superscript
+            '<m:sub',        # subscript
+            '<m:frac',       # a fraction
+            '<m:msup',       # mathematical superscript
+            '<a:blip',       # bitmap image
+            '<a:shape',      # a shape
+            '<a:groupShape', # a group of shapes
+            '<a:line',       # a line shape
+        }
+
+        #return ('<w:drawing' in xml or '<w:pict' in xml or '<w:hyperlink' in xml or '<w:instrText' in xml)
+        return any(tag in xml for tag in skip_tags)
 
 
 
@@ -164,7 +215,7 @@ class TranslationWorker(QThread):
         self._mutex.lock()
         self._abort = True
         self._mutex.unlock()
-        self.wait()
+        self.wait(500)
 
 
 class FileTranslator:

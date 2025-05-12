@@ -3,7 +3,7 @@ from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QStackedWidget, QFileDialog, QLabel
 from PyQt6.QtCore import Qt, pyqtSignal, QTranslator, QCoreApplication, QTimer, pyqtSlot
 #sys.stdout = open(os.devnull, 'w')
-from qfluentwidgets import setThemeColor, TransparentToolButton, FluentIcon, PushSettingCard, isDarkTheme, SettingCard, MessageBox, FluentTranslator, IndeterminateProgressBar, HeaderCardWidget, BodyLabel, IconWidget, InfoBarIcon, PushButton, SubtitleLabel, ComboBoxSettingCard, OptionsSettingCard, HyperlinkCard, ScrollArea, InfoBar, InfoBarPosition, StrongBodyLabel, Flyout, FlyoutAnimationType
+from qfluentwidgets import setThemeColor, TransparentToolButton, FluentIcon, PushSettingCard, isDarkTheme, SettingCard, MessageBox, FluentTranslator, IndeterminateProgressBar, HeaderCardWidget, BodyLabel, IconWidget, InfoBarIcon, PushButton, SubtitleLabel, ComboBoxSettingCard, OptionsSettingCard, HyperlinkCard, ScrollArea, InfoBar, InfoBarPosition, StrongBodyLabel, Flyout, FlyoutAnimationType, TransparentPushButton
 from winrt.windows.ui.viewmanagement import UISettings, UIColorType
 from resource.config import cfg
 from resource.argos_utils import update_package, update_device
@@ -100,7 +100,7 @@ class FileLabel(QLabel):
 
         self.file_path, _ = QFileDialog.getOpenFileName(
             self,
-            QCoreApplication.translate("MainWindow", "Select a PDF or EPUB file"),
+            QCoreApplication.translate("MainWindow", "Select file"),
             initial_dir,
             QCoreApplication.translate("MainWindow",
                 "Text files (*.pdf *.epub *.docx *.txt);;"
@@ -640,6 +640,7 @@ class MainWindow(QMainWindow):
                 self.file_translator.translation_worker.save_path = ""
                 self.file_translator.translation_worker.abort()
                 self.progressbar.stop()
+                self.return_to_filepicker()
 
     def on_translation_done(self, result, success):
         self.progressbar.stop()
@@ -666,9 +667,9 @@ class MainWindow(QMainWindow):
                 duration=4000,
                 parent=self
             )
-        if not success:
-            if hasattr(self.file_translator, 'translation_worker'):
-                self.file_translator.translation_worker.abort()
+
+        if hasattr(self.file_translator, 'translation_worker'):
+            self.file_translator.translation_worker.abort()
 
     def on_package_download_finished(self, status):
         if status == "start":
