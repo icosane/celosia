@@ -12,7 +12,6 @@ from qfluentwidgets import InfoBar
 class TranslationWorker(QThread):
     request_save_path = pyqtSignal(str, str)
     finished_signal = pyqtSignal(str, bool)
-    progress_updated = pyqtSignal(int)
 
     def __init__(self, input_path, from_code, to_code):
         super().__init__()
